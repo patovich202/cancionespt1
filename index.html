@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voltax</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              black: '#0D0D0D',
+              card: '#161618',
+              pink: '#FF2A85',
+              pinkHover: '#E01E70',
+              textMuted: '#9CA3AF'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-brand-black text-white font-sans min-h-screen flex flex-col justify-between pb-32 select-none">
+
+  <header class="p-5 flex justify-between items-center border-b border-gray-800">
+    <h1 class="text-2xl font-black tracking-wider text-brand-pink">VOLTAX</h1>
+    <button class="bg-brand-card p-2 rounded-full text-brand-pink border border-gray-800">
+      <i data-lucide="user"></i>
+    </button>
+  </header>
+
+  <main class="p-5 space-y-6 max-w-md mx-auto w-full">
+    <section>
+      <h2 class="text-xl font-bold mb-4">Canciones</h2>
+      <div id="lista-canciones" class="space-y-3">
+        <p class="text-brand-textMuted text-sm">Cargando catálogo...</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Player Reproductor -->
+  <div class="fixed bottom-0 left-0 right-0 bg-brand-card/95 backdrop-blur-md border-t border-gray-800 p-4 flex flex-col space-y-3 shadow-2xl z-50">
+    <!-- Barra de progreso interactiva -->
+    <div class="w-full bg-gray-800 h-2 rounded-full cursor-pointer relative" id="barra-contenedor">
+      <div id="barra-progreso" class="bg-brand-pink h-full w-0 rounded-full transition-all duration-100"></div>
+    </div>
+    
+    <div class="flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <img id="player-cover" src="https://via.placeholder.com/40" class="w-12 h-12 rounded-xl object-cover bg-gray-800" />
+        <div class="overflow-hidden">
+          <p id="player-titulo" class="text-sm font-semibold truncate max-w-[130px] sm:max-w-[180px]">Selecciona canción</p>
+          <p id="player-subtexto" class="text-xs text-brand-textMuted truncate max-w-[130px] sm:max-w-[180px]">Voltax Player</p>
+        </div>
+      </div>
+
+      <!-- Controles principales -->
+      <div class="flex items-center space-x-2">
+        <button id="btn-prev" class="p-2 text-brand-textMuted hover:text-white transition">
+          <i data-lucide="skip-back"></i>
+        </button>
+        <button id="btn-play" class="w-11 h-11 bg-brand-pink text-white rounded-full flex items-center justify-center hover:bg-brand-pinkHover transition shadow-lg shadow-brand-pink/30">
+          <i data-lucide="play" class="ml-0.5"></i>
+        </button>
+        <button id="btn-next" class="p-2 text-brand-textMuted hover:text-white transition">
+          <i data-lucide="skip-forward"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="audio-element"></audio>
+
+  <script>
+    // Registrar Service Worker para PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Fail', err));
+    }
+
+    const JSON_URL = 'https://raw.githubusercontent.com/patovich202/cancionespt1/refs/heads/main/canciones.json';
+    let canciones = [];
+    let indiceActual = 0;
+
+    const audio = document.getElementById('audio-element');
+    const btnPlay = document.getElementById('btn-play');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const barraContenedor = document.getElementById('barra-contenedor');
+    const barraProgreso = document.getElementById('barra-progreso');
+
+    async function cargarCanciones() {
+      try {
+        const respuesta = await fetch(JSON_URL);
+        canciones = await respuesta.json();
+        renderizarCanciones();
+      } catch (error) {
+        console.error("Error al cargar JSON:", error);
+        document.getElementById('lista-canciones').innerHTML = `<p class="text-red-500 text-sm">Error al cargar canciones.</p>`;
+      }
+    }
+
+    function renderizarCanciones() {
+      const contenedor = document.getElementById('lista-canciones');
+      contenedor.innerHTML = '';
+
+      canciones.forEach((c, index) => {
+        const esOffline = localStorage.getItem(`offline_${c.id}`);
+        contenedor.innerHTML += `
+          <div class="bg-brand-card p-3 rounded-2xl flex items-center justify-between border border-gray-800/60 hover:border-brand-pink/30 transition">
+            <div class="flex items-center space-x-3 cursor-pointer flex-1" onclick="reproducirPorIndice(${index})">
+              <img src="${c.cover}" class="w-14 h-14 rounded-xl object-cover bg-gray-800" />
+              <div>
+                <h3 class="font-semibold text-base leading-snug">${c.titulo}</h3>
+                <p class="text-xs text-brand-textMuted">${c.artista}</p>
+                <span class="text-[10px] text-gray-500">Lanzamiento: ${c.fecha_lanzamiento || 'N/A'}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <button onclick="descargar(${c.id}, '${c.audio}')" class="p-2 ${esOffline ? 'text-brand-pink' : 'text-brand-textMuted'} hover:text-brand-pink transition" title="${esOffline ? 'Guardada Offline' : 'Descargar'}">
+                <i data-lucide="${esOffline ? 'check-circle' : 'arrow-down-circle'}"></i>
+              </button>
+              <button onclick="reproducirPorIndice(${index})" class="w-10 h-10 bg-brand-pink text-white rounded-full flex items-center justify-center shadow-md shadow-brand-pink/20">
+                <i data-lucide="play" class="ml-0.5"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+      lucide.createIcons();
+    }
+
+    async function reproducirPorIndice(index) {
+      if (index < 0 || index >= canciones.length) return;
+      indiceActual = index;
+      const cancion = canciones[indiceActual];
+
+      document.getElementById('player-titulo').innerText = cancion.titulo;
+      document.getElementById('player-subtexto').innerText = `${cancion.artista} • ${cancion.fecha_lanzamiento || ''}`;
+      document.getElementById('player-cover').src = cancion.cover;
+
+      try {
+        const cache = await caches.open('voltax-audio-v1');
+        const match = await cache.match(cancion.audio);
+
+        if (match) {
+          const blob = await match.blob();
+          audio.src = URL.createObjectURL(blob);
+        } else {
+          audio.src = cancion.audio;
+        }
+
+        audio.play();
+        actualizarBotonPlay(true);
+      } catch (e) {
+        audio.src = cancion.audio;
+        audio.play();
+        actualizarBotonPlay(true);
+      }
+    }
+
+    btnPlay.addEventListener('click', () => {
+      if (!audio.src && canciones.length > 0) {
+        reproducirPorIndice(0);
+        return;
+      }
+      if (audio.paused) {
+        audio.play();
+        actualizarBotonPlay(true);
+      } else {
+        audio.pause();
+        actualizarBotonPlay(false);
+      }
+    });
+
+    btnNext.addEventListener('click', () => {
+      let siguiente = indiceActual + 1;
+      if (siguiente >= canciones.length) siguiente = 0;
+      reproducirPorIndice(siguiente);
+    });
+
+    btnPrev.addEventListener('click', () => {
+      let anterior = indiceActual - 1;
+      if (anterior < 0) anterior = canciones.length - 1;
+      reproducirPorIndice(anterior);
+    });
+
+    // Control de barra de progreso interactiva
+    audio.addEventListener('timeupdate', () => {
+      if (audio.duration) {
+        const pct = (audio.currentTime / audio.duration) * 100;
+        barraProgreso.style.width = `${pct}%`;
+      }
+    });
+
+    barraContenedor.addEventListener('click', (e) => {
+      if (!audio.duration) return;
+      const rect = barraContenedor.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const pct = clickX / rect.width;
+      audio.currentTime = pct * audio.duration;
+    });
+
+    audio.addEventListener('ended', () => {
+      btnNext.click();
+    });
+
+    function actualizarBotonPlay(reproduciendo) {
+      btnPlay.innerHTML = `<i data-lucide="${reproduciendo ? 'pause' : 'play'}" class="${reproduciendo ? '' : 'ml-0.5'}"></i>`;
+      lucide.createIcons();
+    }
+
+    async function descargar(id, url) {
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const cache = await caches.open('voltax-audio-v1');
+        await cache.put(url, new Response(blob));
+        localStorage.setItem(`offline_${id}`, 'true');
+        alert("¡Canción descargada para escuchar offline!");
+        renderizarCanciones();
+      } catch (err) {
+        console.error("Error descargando:", err);
+        alert("Para guardar offline, subí la app a GitHub Pages o usá Live Server.");
+      }
+    }
+
+    cargarCanciones();
+  </script>
+</body>
+</html>
